@@ -17,6 +17,12 @@ private actor ConnectCoordinator {
         await task.value
         inFlight = nil
     }
+
+    /// Bij disconnect/forceReconnect: anders blijft een vastgelopen `connect()` de coordinator blokkeren.
+    func reset() {
+        inFlight?.cancel()
+        inFlight = nil
+    }
 }
 
 @Observable
@@ -50,6 +56,33 @@ final class MeteorService {
     #endif
 
     private init() {}
+
+    /// Zelfde host/poort als de WebSocket, maar `http(s)://` — voor bereikbaarheid **zonder** DDP `connect()`.
+    /// De WebSocket-kit hervat bij connection refused soms geen continuation; HTTP faalt dan wel netjes binnen seconden.
+    func reachabilityHTTPURL() -> URL? {
+        guard let ws = URL(string: serverURL) else { return nil }
+        var components = URLComponents()
+        components.scheme = (ws.scheme?.lowercased() == "wss") ? "https" : "http"
+        components.host = ws.host
+        components.port = ws.port
+        components.path = "/"
+        return components.url
+    }
+
+    /// Lichte GET naar de Meteor-root; `false` bij connection refused / timeout. Gebruikt geen WebSocket.
+    func pingServerHTTP() async -> Bool {
+        guard let url = reachabilityHTTPURL() else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        request.httpMethod = "GET"
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            return (200..<600).contains(http.statusCode)
+        } catch {
+            return false
+        }
+    }
 
     func connect(token: String? = nil) async {
         if isConnected { return }
@@ -91,7 +124,16 @@ final class MeteorService {
         observeConnectionState(ddp)
 
         do {
-            try await ddp.connect()
+            // Harde timeout: bij connection refused / vastlopende WebSocket kan de kit soms de continuation niet hervatten.
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { try await ddp.connect() }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(14))
+                    throw MeteorConnectTimeout()
+                }
+                defer { group.cancelAll() }
+                try await group.next()!
+            }
 
             let resumeToken = token ?? KeychainService.getToken()
             if let resumeToken {
@@ -102,6 +144,13 @@ final class MeteorService {
             }
 
             isConnecting = false
+        } catch is MeteorConnectTimeout {
+            connectionError = "Timeout — server reageert niet"
+            isConnecting = false
+            stateTask?.cancel()
+            client?.disconnect()
+            client = nil
+            isConnected = false
         } catch {
             connectionError = error.localizedDescription
             isConnecting = false
@@ -154,6 +203,13 @@ final class MeteorService {
         isConnected = false
     }
 
+    /// Na offline → online: oude WebSocket weggooien en opnieuw verbinden (anders blijft DDP dood terwijl HTTP weer OK is).
+    func forceReconnect() async {
+        disconnect()
+        await connectCoordinator.reset()
+        await connect()
+    }
+
     private func observeConnectionState(_ ddp: DDPClient) {
         stateTask?.cancel()
         stateTask = Task { [weak self] in
@@ -190,3 +246,5 @@ enum MeteorServiceError: LocalizedError {
         }
     }
 }
+
+private struct MeteorConnectTimeout: Error {}

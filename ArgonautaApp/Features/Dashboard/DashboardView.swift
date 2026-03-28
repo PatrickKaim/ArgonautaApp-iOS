@@ -38,6 +38,9 @@ struct DashboardView: View {
             .navigationBarHidden(true)
             .refreshable { await viewModel.loadData() }
             .task { await viewModel.loadData() }
+            .onReceive(NotificationCenter.default.publisher(for: .meteorConnectionRestored)) { _ in
+                Task { await viewModel.loadData() }
+            }
             .navigationDestination(for: HomeRoute.self) { route in
                 switch route {
                 case .photosAll:

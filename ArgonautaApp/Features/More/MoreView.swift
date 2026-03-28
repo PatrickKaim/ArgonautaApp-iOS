@@ -31,6 +31,14 @@ struct MoreView: View {
                         }
                     }
                 }
+
+                if appState.canManageCMS {
+                    Section("CMS") {
+                        NavigationLink { NotificationsComposeView() } label: {
+                            Label("Notificatie versturen", systemImage: "bell.badge.fill")
+                        }
+                    }
+                }
             }
             .navigationTitle("Meer")
             .navigationBarTitleDisplayMode(.inline)

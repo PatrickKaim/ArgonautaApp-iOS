@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import UserNotifications
 import Observation
+import Foundation
 
 enum ChallengeStatus {
     case pending
@@ -29,24 +30,147 @@ final class AppState {
     /// Laatste fout bij openen van een magic link (Universal Link / handoff); voor feedback op het wachtscherm.
     private(set) var lastMagicLinkError: String?
 
+    /// `nil` = eerste check nog bezig; `true`/`false` na HTTP-ping (zelfde host als WebSocket, geen DDP).
+    private(set) var serverReachable: Bool?
+
+    /// Verhoogt na DDP-reconnect (optioneel voor `.onChange` in views).
+    private(set) var dataRefreshGeneration: Int = 0
+
     private let meteor = MeteorService.shared
+    private var previousServerReachable: Bool?
+    private var reachabilityTask: Task<Void, Never>?
+    private var reachabilityStarted = false
 
     private init() {}
 
+    /// Periodieke check: eerste meting gebeurt in `initialize()`; daarna elke minuut.
+    func startReachabilityMonitoring() {
+        guard !reachabilityStarted else { return }
+        reachabilityStarted = true
+        reachabilityTask = Task { @MainActor [weak self] in
+            await self?.runReachabilityLoop()
+        }
+    }
+
+    /// Updates op MainActor zodat `@Observable` + SwiftUI de login-banner betrouwbaar verversen.
+    @MainActor
+    private func runReachabilityLoop() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled else { break }
+            let ok = await checkServerReachability()
+            await applyServerReachability(ok)
+        }
+    }
+
+    /// Eén directe check (bijv. na terugkeren naar de app).
+    func refreshServerReachability() async {
+        let ok = await checkServerReachability()
+        await applyServerReachability(ok)
+    }
+
+    /// Zet `serverReachable`; bij overgang offline → online, of HTTP OK maar DDP nog dood: opnieuw verbinden.
+    private func applyServerReachability(_ ok: Bool) async {
+        await MainActor.run {
+            let was = self.previousServerReachable
+            self.previousServerReachable = ok
+            self.serverReachable = ok
+            // Geen reconnect bij eerste meting (was == nil): `resumeMeteorSessionAfterLaunch` doet de eerste connect.
+            let ddpDeadWhileHttpOk = ok && was == true && !self.meteor.isConnected
+            let cameBackOnline = ok && was == false
+            if cameBackOnline || ddpDeadWhileHttpOk,
+               self.authStatus == .loggedIn,
+               KeychainService.getToken() != nil {
+                Task { await self.reconnectMeteorAfterRecovery() }
+            }
+        }
+    }
+
+    /// HTTP zegt weer OK terwijl DDP nog een dode socket heeft — `forceReconnect` + profiel + notificatie voor tab-data.
+    private func reconnectMeteorAfterRecovery() async {
+        guard await MainActor.run(body: { self.authStatus == .loggedIn }) else { return }
+        guard KeychainService.getToken() != nil else { return }
+        await meteor.forceReconnect()
+        await loadUserProfile()
+        await MainActor.run {
+            self.dataRefreshGeneration += 1
+            NotificationCenter.default.post(name: .meteorConnectionRestored, object: nil)
+        }
+    }
+
+    /// HTTP GET naar de Meteor-host (localhost:3000 of productie); **geen** `ddp.connect()` — die kit lekt bij refused soms de continuation.
+    func checkServerReachability() async -> Bool {
+        await meteor.pingServerHTTP()
+    }
+
     func initialize() async {
+        startReachabilityMonitoring()
+
+        // Vóór login/main UI: eerste HTTP-ping synchroon (achtergrondtask was te laat → `serverReachable` bleef `nil`).
+        let firstOk = await checkServerReachability()
+        await applyServerReachability(firstOk)
+
         guard KeychainService.getToken() != nil else {
-            authStatus = .loggedOut
+            await MainActor.run { self.authStatus = .loggedOut }
             return
         }
 
-        await meteor.connect()
+        // Geen `await meteor.connect()` hier: bij offline server kan DDP `connect()` vastlopen → splash blijft op `.unknown`.
+        await MainActor.run { self.authStatus = .loggedIn }
+        Task { await self.resumeMeteorSessionAfterLaunch() }
+    }
 
-        if meteor.userId != nil {
-            authStatus = .loggedIn
-            await loadUserProfile()
-        } else {
-            authStatus = .loggedOut
-            KeychainService.clearAll()
+    /// DDP-sessie na cold start; faalt mee als server weg is (token ongeldig → uitloggen).
+    private func resumeMeteorSessionAfterLaunch() async {
+        await meteor.connect()
+        let uid = await MainActor.run { self.meteor.userId }
+        if uid == nil {
+            await MainActor.run {
+                self.authStatus = .loggedOut
+                KeychainService.clearAll()
+                self.isOWHMember = false
+                self.canManageClubhouse = false
+                self.canManageCMS = false
+                self.displayName = ""
+            }
+            return
+        }
+        await loadUserProfile()
+    }
+
+    /// Fallback: 8-cijferige code per e-mail (zelfde als magic link qua account).
+    func requestEmailLoginCode(email: String) async throws {
+        _ = try await meteor.call("auth.requestEmailLoginCode", params: [email, "nl"])
+    }
+
+    func verifyEmailLoginCode(email: String, code: String) async throws {
+        var verifyResult: Any?
+        var lastError: Error?
+        for attempt in 0..<3 {
+            do {
+                if attempt > 0 { try await Task.sleep(for: .milliseconds(500)) }
+                verifyResult = try await meteor.call("auth.verifyEmailLoginCode", params: [email, code])
+                lastError = nil
+                break
+            } catch {
+                lastError = error
+                if Self.isTransientConnectionError(error), attempt < 2 { continue }
+                throw error
+            }
+        }
+        guard let dict = verifyResult as? [String: Any], let loginToken = dict["loginToken"] as? String else {
+            throw lastError ?? MeteorServiceError.notConnected
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        for attempt in 0..<3 {
+            do {
+                if attempt > 0 { try await Task.sleep(for: .milliseconds(500)) }
+                try await loginWithToken(loginToken)
+                return
+            } catch {
+                if Self.isTransientConnectionError(error), attempt < 2 { continue }
+                throw error
+            }
         }
     }
 

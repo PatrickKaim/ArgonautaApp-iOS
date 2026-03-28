@@ -23,6 +23,9 @@ struct CalendarView: View {
             .onChange(of: displayedMonth) { _, newMonth in
                 Task { await viewModel.loadMonth(newMonth) }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .meteorConnectionRestored)) { _ in
+                Task { await viewModel.loadMonth(displayedMonth) }
+            }
         }
     }
 

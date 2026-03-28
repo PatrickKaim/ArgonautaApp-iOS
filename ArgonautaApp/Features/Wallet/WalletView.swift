@@ -19,6 +19,9 @@ struct WalletView: View {
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await viewModel.loadData() }
             .onAppear { Task { await viewModel.loadData() } }
+            .onReceive(NotificationCenter.default.publisher(for: .meteorConnectionRestored)) { _ in
+                Task { await viewModel.loadData() }
+            }
             .fullScreenCover(isPresented: $showQRFullScreen) {
                 QRFullScreenView(cardCode: viewModel.cardCode ?? "")
             }

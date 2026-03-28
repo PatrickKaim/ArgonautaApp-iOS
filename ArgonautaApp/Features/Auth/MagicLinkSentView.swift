@@ -6,6 +6,7 @@ struct MagicLinkSentView: View {
     let challengeId: String
     let onBack: () -> Void
     let onResend: () -> Void
+    let onUseEmailCode: () -> Void
 
     @State private var pollingTask: Task<Void, Never>?
     @State private var isPolling = true
@@ -61,6 +62,18 @@ struct MagicLinkSentView: View {
                     .background(ArgoTheme.adaptiveSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal, 32)
+
+                    Button {
+                        pollingTask?.cancel()
+                        onUseEmailCode()
+                    } label: {
+                        Text("Liever een code uit e-mail?")
+                            .font(.argoSubheadline)
+                            .foregroundStyle(ArgoTheme.interactiveAccent)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
                 }
             } else {
                 VStack(spacing: 8) {
@@ -83,6 +96,18 @@ struct MagicLinkSentView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 24)
                     }
+
+                    Button {
+                        pollingTask?.cancel()
+                        onUseEmailCode()
+                    } label: {
+                        Text("Link werkt niet? Gebruik code uit e-mail")
+                            .font(.argoSubheadline)
+                            .foregroundStyle(ArgoTheme.interactiveAccent)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
                 }
             }
 

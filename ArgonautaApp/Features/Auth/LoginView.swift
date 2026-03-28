@@ -6,18 +6,49 @@ struct LoginView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showMagicLinkSent = false
+    @State private var showEmailCode = false
     @State private var challengeId: String?
 
     var body: some View {
         ZStack {
             ArgoTheme.blueNormal.ignoresSafeArea()
 
-            if showMagicLinkSent, let challengeId {
+            if appState.serverReachable == false {
+                NetworkUnsupportedView()
+                    .transition(.opacity)
+            } else if appState.serverReachable == nil {
+                VStack(spacing: 20) {
+                    ArgoLogo(size: 100)
+                    ProgressView().tint(.white)
+                    Text("Verbinding maken…")
+                        .font(.argoCaption)
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+                .transition(.opacity)
+            } else if showEmailCode {
+                EmailCodeLoginView(
+                    email: email,
+                    onBack: {
+                        showEmailCode = false
+                        if challengeId != nil {
+                            showMagicLinkSent = true
+                        }
+                    }
+                )
+                .transition(.move(edge: .trailing))
+            } else if showMagicLinkSent, let challengeId {
                 MagicLinkSentView(
                     email: email,
                     challengeId: challengeId,
-                    onBack: { showMagicLinkSent = false },
-                    onResend: { Task { await sendMagicLink() } }
+                    onBack: {
+                        showMagicLinkSent = false
+                        self.challengeId = nil
+                    },
+                    onResend: { Task { await sendMagicLink() } },
+                    onUseEmailCode: {
+                        showMagicLinkSent = false
+                        showEmailCode = true
+                    }
                 )
                 .transition(.move(edge: .trailing))
             } else {
@@ -26,6 +57,8 @@ struct LoginView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: showMagicLinkSent)
+        .animation(.easeInOut(duration: 0.3), value: showEmailCode)
+        .animation(.easeInOut(duration: 0.3), value: appState.serverReachable)
     }
 
     private var loginForm: some View {

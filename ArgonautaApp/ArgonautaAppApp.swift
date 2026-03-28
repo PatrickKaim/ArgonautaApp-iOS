@@ -60,6 +60,7 @@ struct ArgonautaAppApp: App {
 
 struct RootView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -73,6 +74,11 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: appState.authStatus)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await appState.refreshServerReachability() }
+            }
+        }
     }
 }
 
