@@ -1,4 +1,7 @@
 import SwiftUI
+import MeteorDDPKit
+import AVKit
+import WebKit
 
 struct BlogPostDetailView: View {
     let postId: String
@@ -13,6 +16,8 @@ struct BlogPostDetailView: View {
     @State private var selectedEmoji: EmojiOption?
     @State private var isSubmitting = false
     @State private var isLikeLoading = false
+    /// Voorkomt dubbele RPC bij `blog_reactions`-events wanneer de inhoud t.o.v. minimongo ongewijzigd is.
+    @State private var lastReactionFingerprint: String = ""
 
     private let meteor = MeteorService.shared
 
@@ -101,7 +106,10 @@ struct BlogPostDetailView: View {
                 }
             }
         }
-        .task { await loadAll() }
+        .task(id: postId) {
+            await loadAll()
+            await runReactionsLiveUpdatesWithCleanup()
+        }
     }
 
     // MARK: - Artikel
@@ -446,6 +454,42 @@ struct BlogPostDetailView: View {
                     }
                 }
             }
+        case "video":
+            if let dict = content as? [String: Any] {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let raw = dict["url"] as? String, let abs = URLResolver.resolve(raw) {
+                        if let embed = blogVideoEmbedURL(absoluteString: abs) {
+                            BlogEmbedWebView(url: embed)
+                                .aspectRatio(16 / 9, contentMode: .fit)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else if let browser = URL(string: abs) {
+                            Link(destination: browser) {
+                                Text("Video openen")
+                                    .font(ArgoTheme.font(size: 14, weight: .semibold))
+                                    .foregroundStyle(ArgoTheme.interactiveAccent)
+                            }
+                        }
+                    }
+                    if let caption = dict["caption"] as? String, !caption.isEmpty {
+                        Text(caption).font(.argoCaption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        case "video_upload":
+            if let dict = content as? [String: Any],
+               let raw = dict["url"] as? String,
+               let streamURL = URLResolver.resolveURL(raw) {
+                VStack(alignment: .leading, spacing: 4) {
+                    VideoPlayer(player: AVPlayer(url: streamURL))
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    if let caption = dict["caption"] as? String, !caption.isEmpty {
+                        Text(caption).font(.argoCaption).foregroundStyle(.secondary)
+                    }
+                }
+            }
         case "code":
             if let dict = content as? [String: Any], let code = dict["code"] as? String, !code.isEmpty {
                 let language = dict["language"] as? String
@@ -479,6 +523,60 @@ struct BlogPostDetailView: View {
             }
         default:
             EmptyView()
+        }
+    }
+
+    // MARK: - Live reacties (DDP `blog.reactionsPublished` + minimongo `blog_reactions`)
+
+    private func reactionFingerprint() -> String {
+        guard let col = meteor.collection("blog_reactions") else { return "" }
+        return col.documents.values
+            .filter { ($0["blogId"] as? String) == postId }
+            .sorted { ($0["_id"] as? String ?? "") < ($1["_id"] as? String ?? "") }
+            .map { doc in
+                let id = doc["_id"] as? String ?? ""
+                let type = doc["type"] as? String ?? ""
+                let created: TimeInterval = {
+                    if let d = doc["createdAt"] as? Date { return d.timeIntervalSince1970 }
+                    if let t = doc["createdAt"] as? TimeInterval { return t }
+                    return 0
+                }()
+                let emoji = doc["emoji"] as? String ?? ""
+                let text = doc["text"] as? String ?? ""
+                return "\(id):\(type):\(created):\(emoji):\(text)"
+            }
+            .joined(separator: "|")
+    }
+
+    private func runReactionsLiveUpdatesWithCleanup() async {
+        guard post != nil else { return }
+        var sub: DDPSubscription?
+        defer {
+            let toStop = sub
+            Task { try? await toStop?.stop() }
+        }
+        do {
+            sub = try await meteor.subscribe("blog.reactionsPublished", params: [postId])
+            try await sub?.waitUntilReady()
+        } catch {
+            return
+        }
+        await MainActor.run { lastReactionFingerprint = reactionFingerprint() }
+        guard let col = meteor.collection("blog_reactions") else { return }
+        for await _ in col.events {
+            if Task.isCancelled { break }
+            try? await Task.sleep(for: .milliseconds(200))
+            let fp = reactionFingerprint()
+            guard !fp.isEmpty else { continue }
+            let shouldRefresh = await MainActor.run {
+                if fp == lastReactionFingerprint { return false }
+                lastReactionFingerprint = fp
+                return true
+            }
+            if shouldRefresh {
+                await loadCounts()
+                await loadActivity()
+            }
         }
     }
 
@@ -546,6 +644,7 @@ struct BlogPostDetailView: View {
         _ = try? await meteor.call("blog.reactions.setLike", params: [postId, newVal])
         await loadCounts()
         await loadActivity()
+        await MainActor.run { lastReactionFingerprint = reactionFingerprint() }
         isLikeLoading = false
     }
 
@@ -559,7 +658,63 @@ struct BlogPostDetailView: View {
         selectedEmoji = nil
         await loadCounts()
         await loadActivity()
+        await MainActor.run { lastReactionFingerprint = reactionFingerprint() }
         isSubmitting = false
     }
 
 }
+
+// MARK: - Blog video (YouTube/Vimeo embed + geüploade MP4)
+
+private func blogVideoEmbedURL(absoluteString: String) -> URL? {
+    let s = absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+    if s.range(of: "youtube.com/embed/", options: .caseInsensitive) != nil {
+        return URL(string: s)
+    }
+    if let range = s.range(of: "youtu.be/", options: .caseInsensitive) {
+        var id = String(s[range.upperBound...])
+        if let q = id.firstIndex(of: "?") { id = String(id[..<q]) }
+        if let h = id.firstIndex(of: "#") { id = String(id[..<h]) }
+        id = id.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !id.isEmpty { return URL(string: "https://www.youtube.com/embed/\(id)") }
+    }
+    if s.localizedCaseInsensitiveContains("youtube.com/watch") {
+        if let components = URLComponents(string: s),
+           let v = components.queryItems?.first(where: { $0.name == "v" })?.value,
+           !v.isEmpty {
+            return URL(string: "https://www.youtube.com/embed/\(v)")
+        }
+        let replaced = s.replacingOccurrences(of: "watch?v=", with: "embed/")
+        if replaced != s, let u = URL(string: replaced) { return u }
+    }
+    if s.range(of: "player.vimeo.com/video/", options: .caseInsensitive) != nil {
+        return URL(string: s)
+    }
+    if s.localizedCaseInsensitiveContains("vimeo.com/"), let url = URL(string: s) {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        if let id = parts.first, id.allSatisfy(\.isNumber) {
+            return URL(string: "https://player.vimeo.com/video/\(id)")
+        }
+    }
+    return nil
+}
+
+private struct BlogEmbedWebView: UIViewRepresentable {
+    let url: URL
+
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        let w = WKWebView(frame: .zero, configuration: config)
+        w.scrollView.isScrollEnabled = false
+        w.load(URLRequest(url: url))
+        return w
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        if webView.url != url {
+            webView.load(URLRequest(url: url))
+        }
+    }
+}
+

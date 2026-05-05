@@ -1,11 +1,8 @@
 import SwiftUI
-import PhotosUI
 
 struct PhotosAllView: View {
     @State private var viewModel = EventPhotosViewModel()
-    @State private var selectedItem: PhotosPickerItem?
-    @State private var pickedImage: UIImage?
-    @State private var showPreview = false
+    @State private var showCamera = false
 
     var body: some View {
         ScrollView {
@@ -31,22 +28,15 @@ struct PhotosAllView: View {
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                PhotosPicker(selection: $selectedItem, matching: .images) {
+                Button {
+                    showCamera = true
+                } label: {
                     Image(systemName: "plus.circle.fill")
                 }
             }
         }
-        .onChange(of: selectedItem) { _, newItem in
-            Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                   let uiImage = UIImage(data: data) {
-                    pickedImage = uiImage
-                    showPreview = true
-                }
-            }
-        }
-        .sheet(isPresented: $showPreview) {
-            PhotoPreviewSheet(image: $pickedImage) {
+        .sheet(isPresented: $showCamera) {
+            CameraView {
                 await viewModel.loadFeed()
             }
         }

@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AA000003DDPKIT000003 /* MeteorDDPKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA000001DDPKIT000001 /* MeteorDDPKit */; };
+		CD7F74B92F8A6C4900E5E48D /* MeteorDDPKit in Frameworks */ = {isa = PBXBuildFile; productRef = CD7F74B82F8A6C4900E5E48D /* MeteorDDPKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,7 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA000003DDPKIT000003 /* MeteorDDPKit in Frameworks */,
+				CD7F74B92F8A6C4900E5E48D /* MeteorDDPKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -77,12 +77,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		CD7F74B72F8A6C4900E5E48D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		CDA205642F6C2081004F9781 = {
 			isa = PBXGroup;
 			children = (
 				CDA2056F2F6C2081004F9781 /* ArgonautaApp */,
 				CDA2057D2F6C2083004F9781 /* ArgonautaAppTests */,
 				CDA205872F6C2083004F9781 /* ArgonautaAppUITests */,
+				CD7F74B72F8A6C4900E5E48D /* Frameworks */,
 				CDA2056E2F6C2081004F9781 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -117,7 +125,7 @@
 			);
 			name = ArgonautaApp;
 			packageProductDependencies = (
-				AA000001DDPKIT000001 /* MeteorDDPKit */,
+				CD7F74B82F8A6C4900E5E48D /* MeteorDDPKit */,
 			);
 			productName = ArgonautaApp;
 			productReference = CDA2056D2F6C2081004F9781 /* ArgonautaApp.app */;
@@ -177,7 +185,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2630;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					CDA2056C2F6C2081004F9781 = {
 						CreatedOnToolsVersion = 26.3;
@@ -337,6 +345,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -394,6 +403,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -604,8 +614,9 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		AA000001DDPKIT000001 /* MeteorDDPKit */ = {
+		CD7F74B82F8A6C4900E5E48D /* MeteorDDPKit */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = AA000002DDPKIT000002 /* XCLocalSwiftPackageReference "../MeteorDDPKit" */;
 			productName = MeteorDDPKit;
 		};
 /* End XCSwiftPackageProductDependency section */

@@ -34,7 +34,13 @@ struct CameraView: View {
                 }
             }
         }
-        .onAppear { openCapture() }
+        // Eén runloop later: voorkomt presentatie-conflict (sheet → fullScreenCover camera).
+        .onAppear {
+            Task { @MainActor in
+                await Task.yield()
+                openCapture()
+            }
+        }
         .fullScreenCover(isPresented: $showImagePicker) {
             ImagePickerView(image: $capturedImage, sourceType: .camera)
                 .ignoresSafeArea()

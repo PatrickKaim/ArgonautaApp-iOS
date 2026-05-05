@@ -22,7 +22,11 @@ final class AppState {
 
     /// Geen token in Keychain → meteen login tonen i.p.v. lang LaunchScreen + `unknown`.
     private(set) var authStatus: AuthStatus = KeychainService.getToken() == nil ? .loggedOut : .unknown
-    private(set) var isOWHMember = false
+    /// Profiel → Activiteiten: OWH recreatief of competitie (aanmelden trainingen).
+    private(set) var owhMenuTraining = false
+    /// Interesse onderwaterhockey óf actieve OWH-zwemrol.
+    private(set) var owhMenuCompetition = false
+    private(set) var owhMenuResults = false
     private(set) var canManageClubhouse = false
     private(set) var canManageCMS = false
     private(set) var displayName = ""
@@ -128,7 +132,9 @@ final class AppState {
             await MainActor.run {
                 self.authStatus = .loggedOut
                 KeychainService.clearAll()
-                self.isOWHMember = false
+                self.owhMenuTraining = false
+                self.owhMenuCompetition = false
+                self.owhMenuResults = false
                 self.canManageClubhouse = false
                 self.canManageCMS = false
                 self.displayName = ""
@@ -281,7 +287,9 @@ final class AppState {
     func logout() async {
         await meteor.logout()
         authStatus = .loggedOut
-        isOWHMember = false
+        owhMenuTraining = false
+        owhMenuCompetition = false
+        owhMenuResults = false
         canManageClubhouse = false
         canManageCMS = false
         displayName = ""
@@ -292,10 +300,17 @@ final class AppState {
 
     private func loadUserProfile() async {
         if let result = try? await meteor.call("users.getOwnCapabilities") as? [String: Any] {
-            isOWHMember = result["isOWH"] as? Bool ?? false
+            owhMenuTraining = result["owhMenuTraining"] as? Bool ?? false
+            owhMenuCompetition = result["owhMenuCompetition"] as? Bool ?? false
+            owhMenuResults = result["owhMenuResults"] as? Bool ?? false
             canManageClubhouse = result["canManageClubhouse"] as? Bool ?? false
             canManageCMS = result["canManageCMS"] as? Bool ?? false
             displayName = result["displayName"] as? String ?? ""
         }
+    }
+
+    /// O.a. na profielwijziging op het web — capabilities opnieuw ophalen.
+    func refreshCapabilities() async {
+        await loadUserProfile()
     }
 }

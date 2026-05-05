@@ -113,16 +113,16 @@ final class OWHTrainingViewModel {
         let signupDocs = signupCol.map { Array($0.documents.values) } ?? []
 
         trainings = Array(col.documents.values).compactMap { doc -> Training? in
-            guard let id = doc["_id"] as? String,
+            guard let id = meteorId(doc["_id"]), !id.isEmpty,
                   let date = doc["date"] as? Date,
                   date >= Calendar.current.startOfDay(for: now) else { return nil }
 
             let mySignup = signupDocs.first {
-                $0["trainingId"] as? String == id && $0["userId"] as? String == userId
+                meteorId($0["trainingId"]) == id && meteorId($0["userId"]) == userId
             }
             let isSignedUp = mySignup != nil
             let signupTypes = (mySignup?["types"] as? [String]) ?? []
-            let count = signupDocs.filter { $0["trainingId"] as? String == id }.count
+            let count = signupDocs.filter { meteorId($0["trainingId"]) == id }.count
 
             if isSignedUp && selectedTypes[id] == nil {
                 selectedTypes[id] = signupTypes
@@ -155,7 +155,7 @@ final class OWHTrainingViewModel {
                 if let byTypeDict = dict["byType"] as? [String: [[String: Any]]] {
                     for (typeId, users) in byTypeDict {
                         byType[typeId] = users.compactMap { u in
-                            guard let uid = u["userId"] as? String,
+                            guard let uid = meteorId(u["userId"]),
                                   let name = u["name"] as? String else { return nil }
                             return AttendeeInfo(id: uid, name: name, imageUrl: u["imageUrl"] as? String)
                         }
@@ -164,21 +164,92 @@ final class OWHTrainingViewModel {
                 newAttendees[trainingId] = TrainingAttendees(totalAttendees: total, byType: byType)
             }
             attendees = newAttendees
+            reconcileFromPoll()
         } catch {
             print("[OWH] loadAttendees error: \(error)")
         }
     }
 
+    /// Poll (RPC) en minimongo kunnen uit de pas lopen: `isSignedUp` + typekeuzes gelijk trekken met de poll.
+    private func reconcileFromPoll() {
+        let userId = meteor.userId ?? ""
+        guard !userId.isEmpty else { return }
+
+        var newSel = selectedTypes
+        let next: [Training] = trainings.map { t in
+            guard let att = attendees[t.id] else { return t }
+            let inPoll = userListedInPoll(att, userId: userId)
+            var nt = t
+            if inPoll, !t.isSignedUp {
+                nt = Training(
+                    id: t.id,
+                    date: t.date,
+                    startTime: t.startTime,
+                    endTime: t.endTime,
+                    isSignedUp: true,
+                    signupTypes: t.signupTypes,
+                    attendeeCount: t.attendeeCount
+                )
+            }
+            guard nt.isSignedUp else { return nt }
+            if let derived = deriveTypesFromPoll(att: att, userId: userId) {
+                newSel[t.id] = derived
+                if nt.signupTypes != derived {
+                    nt = Training(
+                        id: nt.id,
+                        date: nt.date,
+                        startTime: nt.startTime,
+                        endTime: nt.endTime,
+                        isSignedUp: nt.isSignedUp,
+                        signupTypes: derived,
+                        attendeeCount: nt.attendeeCount
+                    )
+                }
+            }
+            return nt
+        }
+
+        selectedTypes = newSel
+        trainings = next
+    }
+
+    /// `nil` = poll geeft geen zichtbare typeverdeling voor jou; dan UI-types niet overschrijven.
+    private func deriveTypesFromPoll(att: TrainingAttendees, userId: String) -> [String]? {
+        let hits = Self.trainingTypes.filter { tid in
+            (att.byType[tid] ?? []).contains(where: { $0.userId == userId })
+        }
+        if !hits.isEmpty { return hits }
+        if (att.byType["geen_voorkeur"] ?? []).contains(where: { $0.userId == userId }) {
+            return []
+        }
+        return nil
+    }
+
+    private func userListedInPoll(_ att: TrainingAttendees, userId: String) -> Bool {
+        for (_, users) in att.byType {
+            if users.contains(where: { $0.userId == userId }) { return true }
+        }
+        return false
+    }
+
     private func startObserving() {
         observeTask?.cancel()
-        guard let col = meteor.collection("owh_trainings") else { return }
         observeTask = Task { [weak self] in
-            for await _ in col.events {
-                guard !Task.isCancelled else { break }
-                try? await Task.sleep(for: .milliseconds(300))
-                self?.syncFromCollections()
-                await self?.loadAttendees()
+            guard let self else { return }
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await self.observeCollection(name: "owh_trainings") }
+                group.addTask { await self.observeCollection(name: "owh_training_signups") }
             }
+        }
+    }
+
+    private func observeCollection(name: String) async {
+        guard let col = meteor.collection(name) else { return }
+        for await _ in col.events {
+            guard !Task.isCancelled else { break }
+            try? await Task.sleep(for: .milliseconds(280))
+            syncFromCollections()
+            await loadAttendees()
         }
     }
 }

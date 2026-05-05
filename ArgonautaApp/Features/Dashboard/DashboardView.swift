@@ -106,7 +106,7 @@ struct DashboardView: View {
                     }
                 }
             }
-            .accessibilityLabel("Meldingen")
+            .accessibilityLabel("Push Notificaties")
 
             NavigationLink(value: HomeRoute.settings) {
                 Image(systemName: "gearshape.fill")

@@ -14,7 +14,8 @@ struct MagicLinkSentView: View {
     @State private var isResending = false
     @State private var dots = ""
 
-    private let expirySeconds = 15 * 60
+    /// Lang genoeg voor doorsturen van de mail; server beëindigt ook via tokenExpiresAt (was 15 min → app stopte te vroeg met pollen).
+    private let expirySeconds = 24 * 60 * 60
 
     var body: some View {
         VStack(spacing: 32) {

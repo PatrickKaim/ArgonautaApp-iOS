@@ -9,9 +9,9 @@ struct NotificationsSheet: View {
             Group {
                 if model.items.isEmpty {
                     ContentUnavailableView(
-                        "Geen meldingen",
+                        "Geen push notificaties",
                         systemImage: "bell.slash",
-                        description: Text("Je hebt geen actieve mededelingen.")
+                        description: Text("Je hebt geen actieve push notificaties.")
                     )
                 } else {
                     List {
@@ -41,7 +41,7 @@ struct NotificationsSheet: View {
                     }
                 }
             }
-            .navigationTitle("Meldingen")
+            .navigationTitle("Push Notificaties")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

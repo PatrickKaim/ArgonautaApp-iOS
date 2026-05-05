@@ -50,7 +50,7 @@ enum NotificationOhLocation: String, CaseIterable, Identifiable {
     }
 }
 
-/// Verstuurt clubbrede notificaties via `notifications.insert` — zelfde payload als CMS-web.
+/// Verstuurt clubbrede push-notificaties via `notifications.insert` — zelfde payload als CMS-web.
 @Observable
 final class NotificationsComposeViewModel {
     var kind: NotificationComposeKind = .message
@@ -129,7 +129,7 @@ final class NotificationsComposeViewModel {
         defer { isSending = false }
         do {
             _ = try await meteor.call("notifications.insert", params: [doc])
-            successMessage = "De notificatie is verstuurd."
+            successMessage = "De push-notificatie is verstuurd."
             resetAfterSend()
         } catch {
             errorMessage = error.localizedDescription

@@ -10,8 +10,11 @@ final class DashboardViewModel {
     var isLoading = false
 
     private let meteor = MeteorService.shared
+    private var announcementSub: DDPSubscription?
     private var photoSub: DDPSubscription?
     private var blogSub: DDPSubscription?
+    private var announcementObserveTask: Task<Void, Never>?
+    private var photoObserveTask: Task<Void, Never>?
     private var blogObserveTask: Task<Void, Never>?
 
     struct Announcement: Identifiable {
@@ -45,18 +48,60 @@ final class DashboardViewModel {
         isLoading = false
     }
 
+    // MARK: - Mededelingen (zelfde pub als narrowcasting / Android)
+
     private func loadAnnouncements() async {
-        guard let result = try? await meteor.call("displayAnnouncements.getActive") as? [[String: Any]] else { return }
-        announcements = result.compactMap { doc in
-            guard let id = doc["_id"] as? String, let text = doc["text"] as? String else { return nil }
-            return Announcement(id: id, text: text)
+        announcementObserveTask?.cancel()
+        announcementObserveTask = nil
+        announcementSub = try? await meteor.subscribe("displayAnnouncements.display", params: [])
+        try? await announcementSub?.waitUntilReady()
+        await syncAnnouncementsFromCollection()
+        startAnnouncementObserving()
+    }
+
+    private func syncAnnouncementsFromCollection() async {
+        guard let col = meteor.collection("display_announcements") else { return }
+        let tuples: [(Int, Date, Announcement)] = col.documents.values.compactMap { doc in
+            guard doc["active"] as? Bool ?? true,
+                  let id = doc["_id"] as? String,
+                  let text = doc["text"] as? String
+            else { return nil }
+            let order = doc["sortOrder"] as? Int ?? 0
+            let created = doc["createdAt"] as? Date ?? .distantPast
+            return (order, created, Announcement(id: id, text: text))
+        }
+        announcements = tuples
+            .sorted { a, b in
+                if a.0 != b.0 { return a.0 < b.0 }
+                return a.1 < b.1
+            }
+            .map { $0.2 }
+    }
+
+    private func startAnnouncementObserving() {
+        announcementObserveTask?.cancel()
+        guard let col = meteor.collection("display_announcements") else { return }
+        announcementObserveTask = Task { [weak self] in
+            for await _ in col.events {
+                guard !Task.isCancelled else { break }
+                try? await Task.sleep(for: .milliseconds(300))
+                await self?.syncAnnouncementsFromCollection()
+            }
         }
     }
 
+    // MARK: - Fotostream
+
     private func loadPhotos() async {
+        photoObserveTask?.cancel()
+        photoObserveTask = nil
         photoSub = try? await meteor.subscribe("eventPhotos.feed", params: [9])
         try? await photoSub?.waitUntilReady()
+        await syncPhotosFromCollection()
+        startPhotoObserving()
+    }
 
+    private func syncPhotosFromCollection() async {
         guard let col = meteor.collection("event_photos") else { return }
         recentPhotos = Array(col.documents.values).compactMap { doc -> Photo? in
             guard let id = doc["_id"] as? String, let rawUrl = doc["imageUrl"] as? String,
@@ -68,6 +113,20 @@ final class DashboardViewModel {
                          authorName: doc["authorName"] as? String, createdAt: createdAt)
         }.sorted { $0.createdAt > $1.createdAt }
     }
+
+    private func startPhotoObserving() {
+        photoObserveTask?.cancel()
+        guard let col = meteor.collection("event_photos") else { return }
+        photoObserveTask = Task { [weak self] in
+            for await _ in col.events {
+                guard !Task.isCancelled else { break }
+                try? await Task.sleep(for: .milliseconds(300))
+                await self?.syncPhotosFromCollection()
+            }
+        }
+    }
+
+    // MARK: - Blog
 
     private func loadBlogPosts() async {
         blogSub = try? await meteor.subscribe("blogs.published", params: [3])

@@ -4,7 +4,7 @@ import UIKit
 import MeteorDDPKit
 import UserNotifications
 
-/// Lid-notificaties via DDP-publicatie `notifications.active` (zelfde als webapp).
+/// Push-notificaties voor leden via DDP-publicatie `notifications.active` (zelfde als webapp).
 @Observable
 final class NotificationsViewModel {
     struct Item: Identifiable {

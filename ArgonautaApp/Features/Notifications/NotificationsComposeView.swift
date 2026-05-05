@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// CMS: notificaties naar alle leden — zelfde drie typen als de website.
+/// CMS: push-notificaties naar alle leden — zelfde drie typen als de website.
 struct NotificationsComposeView: View {
     @State private var viewModel = NotificationsComposeViewModel()
 
@@ -8,8 +8,8 @@ struct NotificationsComposeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text(
-                    "Iedereen met een inlogaccount ziet de melding bij het bel-icoon. "
-                        + "Leden met push aan ontvangen ook een melding op hun telefoon."
+                    "Iedereen met een inlogaccount ziet de push notificatie bij het bel-icoon. "
+                        + "Leden met push aan ontvangen ook een push notificatie op hun telefoon."
                 )
                 .font(ArgoTheme.font(size: 14))
                 .foregroundStyle(.secondary)
@@ -58,7 +58,7 @@ struct NotificationsComposeView: View {
                             ProgressView()
                                 .tint(.white)
                         }
-                        Text(viewModel.isSending ? "Versturen…" : "Notificatie versturen")
+                        Text(viewModel.isSending ? "Versturen…" : "Push-notificatie versturen")
                             .font(ArgoTheme.font(size: 16, weight: .bold))
                     }
                     .frame(maxWidth: .infinity)
@@ -73,7 +73,7 @@ struct NotificationsComposeView: View {
             .padding(.vertical, 12)
         }
         .background(ArgoTheme.groupedBackground)
-        .navigationTitle("Notificatie")
+        .navigationTitle("Push-notificatie")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Fout", isPresented: errorBinding) {
             Button("OK") { viewModel.errorMessage = nil }
@@ -181,7 +181,7 @@ struct NotificationsComposeView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
-            Text("Deze notificatie verloopt automatisch na twee dagen (zelfde als website).")
+            Text("Deze push-notificatie verloopt automatisch na twee dagen (zelfde als website).")
                 .font(ArgoTheme.font(size: 12))
                 .foregroundStyle(.orange)
         }
